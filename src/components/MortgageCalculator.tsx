@@ -54,6 +54,11 @@ interface YearlyData {
   overpayment: number;
 }
 
+interface YearlyOverpayment {
+  year: number;
+  amount: number;
+}
+
 interface MortgageCalculatorProps {
   onScheduleUpdate: (schedule: MonthlyPayment[]) => void;
 }
@@ -62,6 +67,7 @@ export const MortgageCalculator: React.FC<MortgageCalculatorProps> = ({ onSchedu
   const [loanAmount, setLoanAmount] = useState<number>(80000);
   const [loanTerm, setLoanTerm] = useState<number>(15);
   const [monthlyOverpayment, setMonthlyOverpayment] = useState<number>(300);
+  const [debouncedOverpayment, setDebouncedOverpayment] = useState<number>(300);
   const [rentalIncome, setRentalIncome] = useState<number>(1100);
   const [serviceCharge, setServiceCharge] = useState<number>(1300);
   const [interestRates, setInterestRates] = useState<InterestRatePeriod[]>([
@@ -78,7 +84,10 @@ export const MortgageCalculator: React.FC<MortgageCalculatorProps> = ({ onSchedu
   const [yearlyData, setYearlyData] = useState<YearlyData[]>([]);
   const [overpaymentError, setOverpaymentError] = useState<string>('');
   const [overpaymentPercentage, setOverpaymentPercentage] = useState<number>(0);
-  const [debouncedOverpayment, setDebouncedOverpayment] = useState<number>(300);
+  const [selectedYear, setSelectedYear] = useState<number>(() => {
+    const startDate = new Date(interestRates[0].startDate);
+    return startDate.getFullYear();
+  });
 
   // Debounce the overpayment changes
   useEffect(() => {
@@ -137,13 +146,14 @@ export const MortgageCalculator: React.FC<MortgageCalculatorProps> = ({ onSchedu
     let yearTotalInterest = 0;
     let yearTotalOverpayment = 0;
     let yearCashFlow = 0;
+    let lastRate: number | null = null;
+    let regularPayment = 0;
 
     for (let month = 1; month <= loanTerm * 12 && balance > 0; month++) {
-      // Calculate the current date for this month
       const currentDate = new Date(startDate);
       currentDate.setMonth(startDate.getMonth() + month - 1);
       const currentMonth = currentDate.getMonth();
-      
+
       // Find the applicable interest rate
       const ratePeriod = interestRates.find(
         period => {
@@ -154,15 +164,27 @@ export const MortgageCalculator: React.FC<MortgageCalculatorProps> = ({ onSchedu
       );
       const rate = ratePeriod ? ratePeriod.rate : interestRates[interestRates.length - 1].rate;
 
-      // Calculate monthly payment
+      // Calculate monthly payment if rate has changed
       const monthlyRate = rate / 12 / 100;
-      const regularPayment = (loanAmount * monthlyRate * Math.pow(1 + monthlyRate, loanTerm * 12)) /
-        (Math.pow(1 + monthlyRate, loanTerm * 12) - 1);
+      if (rate !== lastRate) {
+        // Calculate remaining term in months from this point to end of loan
+        const remainingTermMonths = (loanTerm * 12) - month + 1;
+        // Calculate new regular payment based on current balance and remaining term
+        regularPayment = (balance * monthlyRate * Math.pow(1 + monthlyRate, remainingTermMonths)) /
+          (Math.pow(1 + monthlyRate, remainingTermMonths) - 1);
+        lastRate = rate;
+      }
+      
+      // Calculate maximum allowed overpayment for this year
+      const maxYearlyOverpayment = yearStartBalance * 0.2;
+      const maxMonthlyOverpayment = maxYearlyOverpayment / 12;
+      // Use the minimum of requested overpayment and maximum allowed
+      const actualMonthlyOverpayment = Math.min(debouncedOverpayment, maxMonthlyOverpayment);
       
       // For the final payment, only pay what's left (including interest)
       const interestPayment = balance * monthlyRate;
       const remainingBalance = balance + interestPayment;
-      const totalPayment = Math.min(regularPayment + monthlyOverpayment, remainingBalance);
+      const totalPayment = Math.min(regularPayment + actualMonthlyOverpayment, remainingBalance);
 
       // Calculate interest and principal portions
       const principalPayment = totalPayment - interestPayment;
@@ -214,7 +236,7 @@ export const MortgageCalculator: React.FC<MortgageCalculatorProps> = ({ onSchedu
           overpayment: yearTotalOverpayment,
         });
 
-        // Reset yearly totals
+        // Reset yearly totals and update year start balance for next year
         yearStartBalance = balance;
         yearTotalPayment = 0;
         yearTotalPrincipal = 0;
@@ -238,7 +260,7 @@ export const MortgageCalculator: React.FC<MortgageCalculatorProps> = ({ onSchedu
   const handleMonthlyOverpaymentChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value === '' ? '' : parseFloat(e.target.value);
     setMonthlyOverpayment(value as number);
-    
+
     if (value === '') {
       setOverpaymentError('');
       setOverpaymentPercentage(0);
@@ -246,15 +268,12 @@ export const MortgageCalculator: React.FC<MortgageCalculatorProps> = ({ onSchedu
     }
 
     // Simple validation based on initial loan amount
-    const maxYearlyOverpayment = loanAmount * 0.2;
-    const maxMonthlyOverpayment = maxYearlyOverpayment / 12;
     const yearlyOverpayment = (value as number) * 12;
     const yearlyPercentage = (yearlyOverpayment / loanAmount) * 100;
-
     setOverpaymentPercentage(yearlyPercentage);
 
-    if (yearlyOverpayment > maxYearlyOverpayment) {
-      setOverpaymentError(`This would result in ${yearlyPercentage.toFixed(1)}% yearly overpayment (maximum 20% allowed)`);
+    if (yearlyPercentage > 20) {
+      setOverpaymentError(`This would result in ${yearlyPercentage.toFixed(1)}% yearly overpayment (will be automatically adjusted down each year to stay within 20% limit)`);
     } else {
       setOverpaymentError('');
     }
@@ -290,25 +309,6 @@ export const MortgageCalculator: React.FC<MortgageCalculatorProps> = ({ onSchedu
                 onChange={(e) => setLoanTerm(parseInt(e.target.value))}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Monthly Overpayment (£)
-              </label>
-              <input
-                type="number"
-                value={monthlyOverpayment}
-                onChange={handleMonthlyOverpaymentChange}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-              {overpaymentError ? (
-                <p className="text-sm text-red-600 mt-1">{overpaymentError}</p>
-              ) : (
-                <p className="text-xs text-gray-500 mt-1">
-                  Using {overpaymentPercentage.toFixed(1)}% of remaining balance £{loanAmount.toLocaleString('en-GB', {minimumFractionDigits: 2, maximumFractionDigits: 2})} (maximum 20% per year)
-                </p>
-              )}
             </div>
           </div>
         </div>
@@ -404,6 +404,30 @@ export const MortgageCalculator: React.FC<MortgageCalculatorProps> = ({ onSchedu
       </div>
 
       <div className="bg-white p-6 rounded-lg shadow mb-8">
+        <h2 className="text-xl font-bold mb-4">Monthly Overpayment</h2>
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Target Monthly Overpayment (£)
+            </label>
+            <input
+              type="number"
+              value={monthlyOverpayment}
+              onChange={handleMonthlyOverpaymentChange}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            {overpaymentError ? (
+              <p className="text-sm text-amber-600 mt-1">{overpaymentError}</p>
+            ) : (
+              <p className="text-xs text-gray-500 mt-1">
+                Using {overpaymentPercentage.toFixed(1)}% of initial loan amount - will automatically adjust down each year to stay within 20% of remaining balance
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-white p-6 rounded-lg shadow mb-8">
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-xl font-bold">Results</h2>
           <div className="flex space-x-2">
@@ -476,42 +500,62 @@ export const MortgageCalculator: React.FC<MortgageCalculatorProps> = ({ onSchedu
         )}
 
         {displayMode === 'monthly' && (
-          <div className="overflow-x-auto">
-            <table className="min-w-full">
-              <thead>
-                <tr className="bg-gray-50 text-gray-600 uppercase text-sm">
-                  <th className="py-2 px-4 text-left">Month</th>
-                  <th className="py-2 px-4 text-left">Date</th>
-                  <th className="py-2 px-4 text-right">Rate</th>
-                  <th className="py-2 px-4 text-right">Payment</th>
-                  <th className="py-2 px-4 text-right">Principal</th>
-                  <th className="py-2 px-4 text-right">Interest</th>
-                  <th className="py-2 px-4 text-right">Overpayment</th>
-                  <th className="py-2 px-4 text-right">Balance</th>
-                  <th className="py-2 px-4 text-right">Cash Flow</th>
-                </tr>
-              </thead>
-              <tbody className="text-gray-600">
-                {schedule.map((row) => (
-                  <tr key={row.month} className="border-t hover:bg-gray-50">
-                    <td className="py-2 px-4">{row.month}</td>
-                    <td className="py-2 px-4">{row.date}</td>
-                    <td className="py-2 px-4 text-right">{row.rate}%</td>
-                    <td className="py-2 px-4 text-right">£{parseFloat(row.payment).toFixed(2)}</td>
-                    <td className="py-2 px-4 text-right">£{parseFloat(row.principal).toFixed(2)}</td>
-                    <td className="py-2 px-4 text-right">£{parseFloat(row.interest).toFixed(2)}</td>
-                    <td className="py-2 px-4 text-right">£{parseFloat(row.overpayment).toFixed(2)}</td>
-                    <td className="py-2 px-4 text-right">£{parseFloat(row.balance).toLocaleString('en-GB', {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2
-                    })}</td>
-                    <td className={`py-2 px-4 text-right ${parseFloat(row.cashFlow) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                      £{parseFloat(row.cashFlow).toFixed(2)}
-                    </td>
+          <div>
+            <div className="flex space-x-2 mb-4 overflow-x-auto pb-2">
+              {yearlySummaries.map((summary) => (
+                <button
+                  key={summary.year}
+                  onClick={() => setSelectedYear(summary.year)}
+                  className={`px-4 py-2 rounded-md text-sm font-medium whitespace-nowrap ${
+                    selectedYear === summary.year ? 'bg-blue-100 text-blue-700' : 'text-gray-700 hover:bg-gray-100'
+                  }`}
+                >
+                  {summary.year}
+                </button>
+              ))}
+            </div>
+            <div className="overflow-x-auto">
+              <table className="min-w-full">
+                <thead>
+                  <tr className="bg-gray-50 text-gray-600 uppercase text-sm">
+                    <th className="py-2 px-4 text-left">Month</th>
+                    <th className="py-2 px-4 text-left">Date</th>
+                    <th className="py-2 px-4 text-right">Rate</th>
+                    <th className="py-2 px-4 text-right">Payment</th>
+                    <th className="py-2 px-4 text-right">Principal</th>
+                    <th className="py-2 px-4 text-right">Interest</th>
+                    <th className="py-2 px-4 text-right">Overpayment</th>
+                    <th className="py-2 px-4 text-right">Balance</th>
+                    <th className="py-2 px-4 text-right">Cash Flow</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="text-gray-600">
+                  {schedule
+                    .filter(row => {
+                      const [day, month, year] = row.date.split('/');
+                      return parseInt(year) === selectedYear;
+                    })
+                    .map((row) => (
+                      <tr key={row.month} className="border-t hover:bg-gray-50">
+                        <td className="py-2 px-4">{row.month}</td>
+                        <td className="py-2 px-4">{row.date}</td>
+                        <td className="py-2 px-4 text-right">{row.rate}%</td>
+                        <td className="py-2 px-4 text-right">£{parseFloat(row.payment).toFixed(2)}</td>
+                        <td className="py-2 px-4 text-right">£{parseFloat(row.principal).toFixed(2)}</td>
+                        <td className="py-2 px-4 text-right">£{parseFloat(row.interest).toFixed(2)}</td>
+                        <td className="py-2 px-4 text-right">£{parseFloat(row.overpayment).toFixed(2)}</td>
+                        <td className="py-2 px-4 text-right">£{parseFloat(row.balance).toLocaleString('en-GB', {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2
+                        })}</td>
+                        <td className={`py-2 px-4 text-right ${parseFloat(row.cashFlow) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                          £{parseFloat(row.cashFlow).toFixed(2)}
+                        </td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
 
