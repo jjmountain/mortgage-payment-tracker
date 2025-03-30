@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   LineChart,
   Line,
@@ -76,6 +76,23 @@ export const MortgageCalculator: React.FC<MortgageCalculatorProps> = ({ onSchedu
   const [yearlySummaries, setYearlySummaries] = useState<YearlySummary[]>([]);
   const [rateData, setRateData] = useState<RateMonthData[]>([]);
   const [yearlyData, setYearlyData] = useState<YearlyData[]>([]);
+  const [overpaymentError, setOverpaymentError] = useState<string>('');
+  const [overpaymentPercentage, setOverpaymentPercentage] = useState<number>(0);
+  const [debouncedOverpayment, setDebouncedOverpayment] = useState<number>(300);
+
+  // Debounce the overpayment changes
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedOverpayment(monthlyOverpayment);
+    }, 500); // 500ms delay
+
+    return () => clearTimeout(timer);
+  }, [monthlyOverpayment]);
+
+  // Use the debounced value for schedule calculations
+  useEffect(() => {
+    calculateAmortizationSchedule();
+  }, [loanAmount, loanTerm, debouncedOverpayment, rentalIncome, serviceCharge, interestRates]);
 
   const updateInterestRate = (index: number, field: keyof InterestRatePeriod, value: any) => {
     const newRates = [...interestRates];
@@ -218,9 +235,30 @@ export const MortgageCalculator: React.FC<MortgageCalculatorProps> = ({ onSchedu
     onScheduleUpdate(schedule);
   };
 
-  useEffect(() => {
-    calculateAmortizationSchedule();
-  }, [loanAmount, loanTerm, monthlyOverpayment, rentalIncome, serviceCharge, interestRates]);
+  const handleMonthlyOverpaymentChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value === '' ? '' : parseFloat(e.target.value);
+    setMonthlyOverpayment(value as number);
+    
+    if (value === '') {
+      setOverpaymentError('');
+      setOverpaymentPercentage(0);
+      return;
+    }
+
+    // Simple validation based on initial loan amount
+    const maxYearlyOverpayment = loanAmount * 0.2;
+    const maxMonthlyOverpayment = maxYearlyOverpayment / 12;
+    const yearlyOverpayment = (value as number) * 12;
+    const yearlyPercentage = (yearlyOverpayment / loanAmount) * 100;
+
+    setOverpaymentPercentage(yearlyPercentage);
+
+    if (yearlyOverpayment > maxYearlyOverpayment) {
+      setOverpaymentError(`This would result in ${yearlyPercentage.toFixed(1)}% yearly overpayment (maximum 20% allowed)`);
+    } else {
+      setOverpaymentError('');
+    }
+  };
 
   return (
     <div className="w-[1200px] mx-auto px-4 py-8">
@@ -261,9 +299,16 @@ export const MortgageCalculator: React.FC<MortgageCalculatorProps> = ({ onSchedu
               <input
                 type="number"
                 value={monthlyOverpayment}
-                onChange={(e) => setMonthlyOverpayment(parseFloat(e.target.value))}
+                onChange={handleMonthlyOverpaymentChange}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
+              {overpaymentError ? (
+                <p className="text-sm text-red-600 mt-1">{overpaymentError}</p>
+              ) : (
+                <p className="text-xs text-gray-500 mt-1">
+                  Using {overpaymentPercentage.toFixed(1)}% of remaining balance £{loanAmount.toLocaleString('en-GB', {minimumFractionDigits: 2, maximumFractionDigits: 2})} (maximum 20% per year)
+                </p>
+              )}
             </div>
           </div>
         </div>

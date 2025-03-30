@@ -71,6 +71,30 @@ export const PaymentTracker: React.FC<PaymentTrackerProps> = ({ schedule, calcul
   }, [years, selectedYear]);
 
   const addPayment = () => {
+    // Check if this is an overpayment
+    if (newPayment.isOverpayment) {
+      // Get the current year's payments
+      const paymentYear = new Date(newPayment.date).getFullYear();
+      const yearSchedule = scheduleByYear.get(paymentYear);
+      
+      if (yearSchedule) {
+        // Get the starting balance for the year
+        const startingBalance = parseFloat(yearSchedule[0].balance);
+        
+        // Calculate total overpayments for this year including the new payment
+        const yearOverpayments = actualPayments
+          .filter(p => p.isOverpayment && new Date(p.date).getFullYear() === paymentYear)
+          .reduce((sum, p) => sum + p.amount, 0) + newPayment.amount;
+        
+        // Check if total overpayments would exceed 20% of starting balance
+        const maxOverpayment = startingBalance * 0.2;
+        if (yearOverpayments > maxOverpayment) {
+          alert(`Cannot add this overpayment. The maximum allowed overpayment for ${paymentYear} is £${maxOverpayment.toFixed(2)} (20% of £${startingBalance.toFixed(2)}). You have already used £${(yearOverpayments - newPayment.amount).toFixed(2)}.`);
+          return;
+        }
+      }
+    }
+
     setActualPayments([...actualPayments, {
       date: newPayment.date,
       amount: newPayment.amount,
@@ -84,6 +108,8 @@ export const PaymentTracker: React.FC<PaymentTrackerProps> = ({ schedule, calcul
       isOverpayment: false,
       note: ''
     });
+    
+    setIsModalOpen(false);
   };
 
   const paymentStats = {
@@ -94,7 +120,21 @@ export const PaymentTracker: React.FC<PaymentTrackerProps> = ({ schedule, calcul
     totalRegularPayments: actualPayments
       .filter(p => !p.isOverpayment)
       .reduce((sum, payment) => sum + payment.amount, 0),
-    paymentsMade: actualPayments.length
+    paymentsMade: actualPayments.length,
+    // Add remaining overpayment allowance for current year
+    remainingOverpaymentAllowance: useMemo(() => {
+      const currentYear = selectedYear;
+      const yearSchedule = scheduleByYear.get(currentYear);
+      if (!yearSchedule) return 0;
+
+      const startingBalance = parseFloat(yearSchedule[0].balance);
+      const maxOverpayment = startingBalance * 0.2;
+      const usedOverpayment = actualPayments
+        .filter(p => p.isOverpayment && new Date(p.date).getFullYear() === currentYear)
+        .reduce((sum, p) => sum + p.amount, 0);
+
+      return Math.max(0, maxOverpayment - usedOverpayment);
+    }, [selectedYear, scheduleByYear, actualPayments])
   };
 
   return (
@@ -131,6 +171,11 @@ export const PaymentTracker: React.FC<PaymentTrackerProps> = ({ schedule, calcul
               <div className="bg-gray-50 p-3 rounded">
                 <p className="text-sm text-gray-600">Payments Made</p>
                 <p className="text-lg font-bold">{paymentStats.paymentsMade}</p>
+              </div>
+              <div className="col-span-2 bg-yellow-50 p-3 rounded">
+                <p className="text-sm text-gray-600">Remaining {selectedYear} Overpayment Allowance</p>
+                <p className="text-lg font-bold text-yellow-700">£{paymentStats.remainingOverpaymentAllowance.toFixed(2)}</p>
+                <p className="text-xs text-gray-500 mt-1">Maximum 20% of outstanding balance per year</p>
               </div>
             </div>
           </div>
