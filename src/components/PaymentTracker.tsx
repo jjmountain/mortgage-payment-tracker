@@ -186,17 +186,17 @@ export const PaymentTracker: React.FC<PaymentTrackerProps> = ({ schedule, calcul
         </div>
         <table className="min-w-full bg-white">
           <thead>
-            <tr className="bg-gray-100 text-gray-600 uppercase text-sm">
-              <th className="py-2 px-4 text-left">Month</th>
-              <th className="py-2 px-4 text-left">Date</th>
-              <th className="py-2 px-4 text-right">Rate</th>
-              <th className="py-2 px-4 text-right">Regular Payment</th>
-              <th className="py-2 px-4 text-right">Overpayment</th>
-              <th className="py-2 px-4 text-right">Interest</th>
-              <th className="py-2 px-4 text-right">Principal</th>
-              <th className="py-2 px-4 text-right">Cash Flow</th>
-              <th className="py-2 px-4 text-right">Remaining Balance</th>
-              <th className="py-2 px-4 text-right">Payment Status</th>
+            <tr className="bg-gray-50 text-gray-600 uppercase text-sm">
+              <th className="py-2 px-4 text-left">MONTH</th>
+              <th className="py-2 px-4 text-left">DATE</th>
+              <th className="py-2 px-4 text-right">RATE</th>
+              <th className="py-2 px-4 text-right">REGULAR PAYMENT</th>
+              <th className="py-2 px-4 text-right">OVERPAYMENT</th>
+              <th className="py-2 px-4 text-right">INTEREST</th>
+              <th className="py-2 px-4 text-right">PRINCIPAL</th>
+              <th className="py-2 px-4 text-right">CASH FLOW</th>
+              <th className="py-2 px-4 text-right">REMAINING BALANCE</th>
+              <th className="py-2 px-4 text-center">PAYMENT STATUS</th>
             </tr>
           </thead>
           <tbody className="text-gray-600">
@@ -223,9 +223,9 @@ export const PaymentTracker: React.FC<PaymentTrackerProps> = ({ schedule, calcul
                     £{parseFloat(row.cashFlow).toFixed(2)}
                   </td>
                   <td className="py-2 px-4 text-right">£{parseFloat(row.balance).toLocaleString('en-GB', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
-                  <td className="py-2 px-4 text-right">
+                  <td className="py-2 px-4 text-center">
                     {relevantPayment && (
-                      <div className="text-sm">
+                      <div className="text-sm mb-2">
                         <div className={relevantPayment.isOverpayment ? 'text-green-600 font-semibold' : ''}>
                           £{relevantPayment.amount.toFixed(2)}
                         </div>
@@ -234,8 +234,6 @@ export const PaymentTracker: React.FC<PaymentTrackerProps> = ({ schedule, calcul
                         )}
                       </div>
                     )}
-                  </td>
-                  <td className="py-2 px-4 text-right">
                     <span className={`px-2 py-1 rounded text-xs font-semibold ${
                       status === 'ahead' ? 'bg-green-100 text-green-800' :
                       status === 'behind' ? 'bg-red-100 text-red-800' :
