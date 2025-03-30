@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { PaymentModal } from './PaymentModal';
 
 interface ActualPayment {
@@ -32,6 +32,7 @@ interface PaymentTrackerProps {
 export const PaymentTracker: React.FC<PaymentTrackerProps> = ({ schedule, calculatePaymentStatus }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [actualPayments, setActualPayments] = useState<ActualPayment[]>([]);
+  const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
   const [newPayment, setNewPayment] = useState<{
     date: string;
     amount: number;
@@ -43,6 +44,31 @@ export const PaymentTracker: React.FC<PaymentTrackerProps> = ({ schedule, calcul
     isOverpayment: false,
     note: ''
   });
+
+  // Group schedule by year
+  const scheduleByYear = useMemo(() => {
+    const grouped = new Map<number, MonthlyPayment[]>();
+    schedule.forEach(payment => {
+      const year = new Date(payment.date).getFullYear();
+      if (!grouped.has(year)) {
+        grouped.set(year, []);
+      }
+      grouped.get(year)?.push(payment);
+    });
+    return grouped;
+  }, [schedule]);
+
+  // Get unique years from schedule
+  const years = useMemo(() => {
+    return Array.from(scheduleByYear.keys()).sort();
+  }, [scheduleByYear]);
+
+  // Set initial selected year if not in range
+  React.useEffect(() => {
+    if (years.length > 0 && !years.includes(selectedYear)) {
+      setSelectedYear(years[0]);
+    }
+  }, [years, selectedYear]);
 
   const addPayment = () => {
     setActualPayments([...actualPayments, {
@@ -140,7 +166,24 @@ export const PaymentTracker: React.FC<PaymentTrackerProps> = ({ schedule, calcul
       </div>
 
       <div className="overflow-x-auto">
-        <h2 className="font-bold mb-2 text-xl">Payment Schedule</h2>
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="font-bold text-xl">Payment Schedule</h2>
+          <div className="flex flex-wrap gap-2">
+            {years.map(year => (
+              <button
+                key={year}
+                onClick={() => setSelectedYear(year)}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  selectedYear === year
+                    ? 'bg-blue-500 text-white'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                {year}
+              </button>
+            ))}
+          </div>
+        </div>
         <table className="min-w-full bg-white">
           <thead>
             <tr className="bg-gray-100 text-gray-600 uppercase text-sm">
@@ -157,7 +200,7 @@ export const PaymentTracker: React.FC<PaymentTrackerProps> = ({ schedule, calcul
             </tr>
           </thead>
           <tbody className="text-gray-600">
-            {schedule.map(row => {
+            {(scheduleByYear.get(selectedYear) || []).map(row => {
               const status = calculatePaymentStatus(row.date, parseFloat(row.payment));
               const relevantPayment = actualPayments.find(p => 
                 new Date(p.date).toDateString() === new Date(row.date).toDateString()
@@ -169,8 +212,8 @@ export const PaymentTracker: React.FC<PaymentTrackerProps> = ({ schedule, calcul
                   status === 'behind' ? 'bg-red-50' :
                   status === 'onTrack' ? 'bg-blue-50' : ''
                 }`}>
-                  <td className="py-2 px-4">{row.month}</td>
-                  <td className="py-2 px-4">{row.date}</td>
+                  <td className="py-2 px-4">{((row.month - 1) % 12) + 1}</td>
+                  <td className="py-2 px-4">{new Date(row.date).toLocaleDateString('en-GB')}</td>
                   <td className="py-2 px-4 text-right">{row.rate}%</td>
                   <td className="py-2 px-4 text-right">£{parseFloat(row.regularPayment).toFixed(2)}</td>
                   <td className="py-2 px-4 text-right">£{parseFloat(row.overpayment).toFixed(2)}</td>

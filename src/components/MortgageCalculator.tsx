@@ -112,7 +112,7 @@ export const MortgageCalculator: React.FC<MortgageCalculatorProps> = ({ onSchedu
 
     let balance = loanAmount;
     let totalInterest = 0;
-    let currentYear = new Date().getFullYear();
+    let currentYear = new Date(interestRates[0].startDate).getFullYear();
     let yearStartBalance = balance;
     let yearTotalPayment = 0;
     let yearTotalPrincipal = 0;
@@ -122,7 +122,8 @@ export const MortgageCalculator: React.FC<MortgageCalculatorProps> = ({ onSchedu
 
     for (let month = 1; month <= loanTerm * 12 && balance > 0; month++) {
       // Calculate the current date for this month
-      const currentDate = new Date(currentYear, month - 1, 1);
+      const monthIndex = (month - 1) % 12;
+      const currentDate = new Date(currentYear, monthIndex, 1);
       
       // Find the applicable interest rate
       const ratePeriod = interestRates.find(
@@ -163,7 +164,7 @@ export const MortgageCalculator: React.FC<MortgageCalculatorProps> = ({ onSchedu
       // Create monthly payment record
       schedule.push({
         month,
-        date: new Date(currentYear, month - 1).toLocaleDateString(),
+        date: currentDate.toLocaleDateString(),
         payment: totalPayment.toFixed(2),
         principal: principalPayment.toFixed(2),
         interest: interestPayment.toFixed(2),
@@ -176,7 +177,7 @@ export const MortgageCalculator: React.FC<MortgageCalculatorProps> = ({ onSchedu
       });
 
       // Yearly summary
-      if (month % 12 === 0 || month === loanTerm * 12 || balance === 0) {
+      if (monthIndex === 11 || month === loanTerm * 12 || balance === 0) {
         yearlySummaries.push({
           year: currentYear,
           totalPayment: yearTotalPayment,
