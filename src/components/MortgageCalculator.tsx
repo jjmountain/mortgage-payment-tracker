@@ -14,6 +14,7 @@ import {
 
 interface InterestRatePeriod {
   startDate: string;
+  endDate: string;
   rate: number;
 }
 
@@ -58,13 +59,17 @@ interface MortgageCalculatorProps {
 }
 
 export const MortgageCalculator: React.FC<MortgageCalculatorProps> = ({ onScheduleUpdate }) => {
-  const [loanAmount, setLoanAmount] = useState<number>(200000);
-  const [loanTerm, setLoanTerm] = useState<number>(25);
-  const [monthlyOverpayment, setMonthlyOverpayment] = useState<number>(0);
-  const [rentalIncome, setRentalIncome] = useState<number>(0);
-  const [serviceCharge, setServiceCharge] = useState<number>(0);
+  const [loanAmount, setLoanAmount] = useState<number>(80000);
+  const [loanTerm, setLoanTerm] = useState<number>(15);
+  const [monthlyOverpayment, setMonthlyOverpayment] = useState<number>(300);
+  const [rentalIncome, setRentalIncome] = useState<number>(1100);
+  const [serviceCharge, setServiceCharge] = useState<number>(1300);
   const [interestRates, setInterestRates] = useState<InterestRatePeriod[]>([
-    { startDate: '2024-01-01', rate: 5.5 }
+    { 
+      startDate: '2025-05-01',
+      endDate: '2027-04-30',
+      rate: 4.97 
+    }
   ]);
   const [displayMode, setDisplayMode] = useState<'summary' | 'monthly' | 'charts'>('summary');
   const [schedule, setSchedule] = useState<MonthlyPayment[]>([]);
@@ -72,7 +77,7 @@ export const MortgageCalculator: React.FC<MortgageCalculatorProps> = ({ onSchedu
   const [rateData, setRateData] = useState<RateMonthData[]>([]);
   const [yearlyData, setYearlyData] = useState<YearlyData[]>([]);
 
-  const updateInterestRate = (index: number, field: keyof InterestRatePeriod, value: number) => {
+  const updateInterestRate = (index: number, field: keyof InterestRatePeriod, value: any) => {
     const newRates = [...interestRates];
     newRates[index] = { ...newRates[index], [field]: value };
     setInterestRates(newRates);
@@ -80,10 +85,18 @@ export const MortgageCalculator: React.FC<MortgageCalculatorProps> = ({ onSchedu
 
   const addInterestRatePeriod = () => {
     const lastPeriod = interestRates[interestRates.length - 1];
-    const startDate = new Date(new Date(lastPeriod.startDate).setMonth(new Date(lastPeriod.startDate).getMonth() + 24)).toISOString().split('T')[0];
+    const startDate = new Date(lastPeriod.endDate);
+    startDate.setDate(startDate.getDate() + 1);
+    const endDate = new Date(startDate);
+    endDate.setFullYear(endDate.getFullYear() + 2);
+    
     setInterestRates([
       ...interestRates,
-      { startDate, rate: 5.5 }
+      { 
+        startDate: startDate.toISOString().split('T')[0],
+        endDate: endDate.toISOString().split('T')[0],
+        rate: 4.97 
+      }
     ]);
   };
 
@@ -107,10 +120,17 @@ export const MortgageCalculator: React.FC<MortgageCalculatorProps> = ({ onSchedu
     let yearTotalOverpayment = 0;
     let yearCashFlow = 0;
 
-    for (let month = 1; month <= loanTerm * 12; month++) {
+    for (let month = 1; month <= loanTerm * 12 && balance > 0; month++) {
+      // Calculate the current date for this month
+      const currentDate = new Date(currentYear, month - 1, 1);
+      
       // Find the applicable interest rate
       const ratePeriod = interestRates.find(
-        period => new Date(period.startDate).getMonth() + 1 === month
+        period => {
+          const startDate = new Date(period.startDate);
+          const endDate = new Date(period.endDate);
+          return currentDate >= startDate && currentDate <= endDate;
+        }
       );
       const rate = ratePeriod ? ratePeriod.rate : interestRates[interestRates.length - 1].rate;
 
@@ -118,21 +138,24 @@ export const MortgageCalculator: React.FC<MortgageCalculatorProps> = ({ onSchedu
       const monthlyRate = rate / 12 / 100;
       const regularPayment = (loanAmount * monthlyRate * Math.pow(1 + monthlyRate, loanTerm * 12)) /
         (Math.pow(1 + monthlyRate, loanTerm * 12) - 1);
-      const totalPayment = regularPayment + monthlyOverpayment;
+      
+      // For the final payment, only pay what's left (including interest)
+      const interestPayment = balance * monthlyRate;
+      const remainingBalance = balance + interestPayment;
+      const totalPayment = Math.min(regularPayment + monthlyOverpayment, remainingBalance);
 
       // Calculate interest and principal portions
-      const interestPayment = balance * monthlyRate;
       const principalPayment = totalPayment - interestPayment;
-      const overpayment = monthlyOverpayment;
+      const overpayment = Math.max(0, totalPayment - regularPayment);
 
       // Update balance and totals
-      balance -= principalPayment;
+      balance = Math.max(0, balance - principalPayment);
       totalInterest += interestPayment;
       yearTotalPayment += totalPayment;
       yearTotalPrincipal += principalPayment;
       yearTotalInterest += interestPayment;
       yearTotalOverpayment += overpayment;
-      yearCashFlow += rentalIncome - serviceCharge - totalPayment;
+      yearCashFlow += rentalIncome - (serviceCharge / 12) - totalPayment;
 
       // Add to rate data
       rateData.push({ month: month.toString(), rate });
@@ -149,11 +172,11 @@ export const MortgageCalculator: React.FC<MortgageCalculatorProps> = ({ onSchedu
         regularPayment: regularPayment.toFixed(2),
         overpayment: overpayment.toFixed(2),
         rate: rate.toFixed(2),
-        cashFlow: (rentalIncome - serviceCharge - totalPayment).toFixed(2)
+        cashFlow: (rentalIncome - (serviceCharge / 12) - totalPayment).toFixed(2)
       });
 
       // Yearly summary
-      if (month % 12 === 0 || month === loanTerm * 12) {
+      if (month % 12 === 0 || month === loanTerm * 12 || balance === 0) {
         yearlySummaries.push({
           year: currentYear,
           totalPayment: yearTotalPayment,
@@ -180,6 +203,9 @@ export const MortgageCalculator: React.FC<MortgageCalculatorProps> = ({ onSchedu
         yearTotalOverpayment = 0;
         yearCashFlow = 0;
       }
+
+      // If balance is zero, we're done
+      if (balance === 0) break;
     }
 
     setSchedule(schedule);
@@ -257,7 +283,7 @@ export const MortgageCalculator: React.FC<MortgageCalculatorProps> = ({ onSchedu
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Monthly Service Charge (£)
+                Yearly Service Charge (£)
               </label>
               <input
                 type="number"
@@ -282,8 +308,19 @@ export const MortgageCalculator: React.FC<MortgageCalculatorProps> = ({ onSchedu
                 <input
                   type="date"
                   value={period.startDate}
-                  onChange={(e) => updateInterestRate(index, 'startDate', new Date(e.target.value).getTime())}
-                  className="w-24 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  onChange={(e) => updateInterestRate(index, 'startDate', e.target.value)}
+                  className="w-36 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  End Date
+                </label>
+                <input
+                  type="date"
+                  value={period.endDate}
+                  onChange={(e) => updateInterestRate(index, 'endDate', e.target.value)}
+                  className="w-36 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
               <div>
@@ -292,7 +329,7 @@ export const MortgageCalculator: React.FC<MortgageCalculatorProps> = ({ onSchedu
                 </label>
                 <input
                   type="number"
-                  step="0.1"
+                  step="0.01"
                   value={period.rate}
                   onChange={(e) => updateInterestRate(index, 'rate', parseFloat(e.target.value))}
                   className="w-24 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -434,6 +471,56 @@ export const MortgageCalculator: React.FC<MortgageCalculatorProps> = ({ onSchedu
         {displayMode === 'charts' && (
           <div className="space-y-8">
             <div className="h-80">
+              <h3 className="text-lg font-semibold mb-4">Principal vs Interest Payments (Monthly)</h3>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={schedule}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis 
+                    dataKey="month" 
+                    tickFormatter={(month) => {
+                      const year = Math.floor((month - 1) / 12) + new Date().getFullYear();
+                      return month % 12 === 1 ? `${year}` : month;
+                    }}
+                  />
+                  <YAxis />
+                  <Tooltip 
+                    formatter={(value: any) => `£${parseFloat(value).toFixed(2)}`}
+                    labelFormatter={(month: any) => {
+                      const year = Math.floor((month - 1) / 12) + new Date().getFullYear();
+                      return `Month ${month} (${year})`;
+                    }}
+                  />
+                  <Legend />
+                  <Bar dataKey="principal" stackId="a" fill="#82ca9d" name="Principal" />
+                  <Bar dataKey="interest" stackId="a" fill="#8884d8" name="Interest" />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+
+            <div className="h-80">
+              <h3 className="text-lg font-semibold mb-4">Principal vs Interest Payments (Yearly)</h3>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={yearlyData}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis 
+                    dataKey="year"
+                  />
+                  <YAxis />
+                  <Tooltip 
+                    formatter={(value: any) => `£${parseFloat(value).toLocaleString('en-GB', {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2
+                    })}`}
+                    labelFormatter={(year: any) => `Year ${year}`}
+                  />
+                  <Legend />
+                  <Bar dataKey="principal" stackId="a" fill="#82ca9d" name="Principal" />
+                  <Bar dataKey="interest" stackId="a" fill="#8884d8" name="Interest" />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+
+            <div className="h-80">
               <h3 className="text-lg font-semibold mb-4">Interest Rate Changes</h3>
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={rateData}>
@@ -448,30 +535,16 @@ export const MortgageCalculator: React.FC<MortgageCalculatorProps> = ({ onSchedu
             </div>
 
             <div className="h-80">
-              <h3 className="text-lg font-semibold mb-4">Yearly Breakdown</h3>
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={yearlyData}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="year" />
-                  <YAxis />
-                  <Tooltip />
-                  <Legend />
-                  <Bar dataKey="payment" fill="#8884d8" name="Total Payment" />
-                  <Bar dataKey="interest" fill="#82ca9d" name="Interest" />
-                  <Bar dataKey="principal" fill="#ffc658" name="Principal" />
-                  <Bar dataKey="overpayment" fill="#ff7300" name="Overpayment" />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-
-            <div className="h-80">
               <h3 className="text-lg font-semibold mb-4">Cash Flow Over Time</h3>
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={yearlyData}>
+                <LineChart data={schedule}>
                   <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="year" />
+                  <XAxis dataKey="month" />
                   <YAxis />
-                  <Tooltip />
+                  <Tooltip 
+                    formatter={(value: any) => `£${parseFloat(value).toFixed(2)}`}
+                    labelFormatter={(label: any) => `Month ${label}`}
+                  />
                   <Legend />
                   <Line type="monotone" dataKey="cashFlow" stroke="#ff7300" name="Cash Flow" />
                 </LineChart>
