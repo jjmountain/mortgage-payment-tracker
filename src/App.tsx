@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { BrowserRouter as Router, Routes, Route, Link, useLocation } from 'react-router-dom';
+import { HashRouter as Router, Routes, Route, Link, useLocation } from 'react-router-dom';
 import { MortgageCalculator } from './components/MortgageCalculator';
 import { PaymentTracker } from './components/PaymentTracker';
 import { ExpenseTracker } from './components/ExpenseTracker';
